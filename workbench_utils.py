@@ -190,7 +190,7 @@ def get_field_definitions(config):
                 # Taxonomy fields can reference multiple vocabularies. If we allow users
                 # to add terms to a multi-vocabulary field, we need a way to indicate in
                 # which vocabulary to add new terms to. Maybe require the vocabulary name as
-                # a prefix in the input, like "person:Mark Jordan"? 
+                # a prefix in the input, like "person:Mark Jordan"?
                 field_definitions[field_name]['vocabularies'] = vocabularies
 
     # print(field_definitions)
@@ -535,6 +535,22 @@ def get_term_names(config, vocab_id):
         term_dict[name] = tid
 
     return term_dict
+
+
+def find_term_in_vocab(config, vocab_id, term_name_from_csv):
+    """For a given term name, loops through all term names in vocab_id
+       to see if term is there already. If so, returns term ID; if not
+       returns False.
+    """
+    terms_in_vocab = get_term_names(config, vocab_id)
+    for name, tid in terms_in_vocab.items():
+        print(name)
+        if term_name_from_csv == name:
+            return tid
+
+    # I.e., none matched.
+    return False
+
 
 def create_term(config, vocab_id, term_name):
     """Adds a term to the target vocabulary. Returns the new term's ID
