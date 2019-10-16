@@ -2,6 +2,7 @@ import os
 import sys
 import json
 import csv
+import re
 import logging
 import datetime
 import requests
@@ -182,7 +183,17 @@ def get_field_definitions(config):
             # E.g., comment, media, node.
             entity_type = item['attributes']['entity_type']
             field_definitions[field_name]['entity_type'] = entity_type
+            # If the current field is a taxonomy field, get the referenced taxonomies.
+            if field_definitions[field_name]['target_type'] == 'taxonomy_term':
+                raw_vocabularies = [x for x in item['attributes']['dependencies']['config'] if re.match("^taxonomy.vocabulary.", x)]
+                vocabularies = [x.replace("taxonomy.vocabulary.", '') for x in raw_vocabularies]
+                # Taxonomy fields can reference multiple vocabularies. If we allow users
+                # to add terms to a multi-vocabulary field, we need a way to indicate in
+                # which vocabulary to add new terms to. Maybe require the vocabulary name as
+                # a prefix in the input, like "person:Mark Jordan"? 
+                field_definitions[field_name]['vocabularies'] = vocabularies
 
+    # print(field_definitions)
     return field_definitions
 
 
@@ -508,3 +519,91 @@ def create_media(config, filename, node_uri):
     media_response = issue_request(config, 'PUT', media_endpoint, media_headers, '', binary_data)
 
     return media_response.status_code
+
+
+def get_term_names(config, vocab_id):
+    """Get all the term name strings plus associated term IDs in a vocabulary.
+    """
+    term_dict = dict()
+    # Note: this URL requires a custom view be present on the target Islandora.
+    vocab_url = config['host'] + '/vocabulary?_format=json&vid=' + vocab_id
+    response = issue_request(config, 'GET', vocab_url)
+    vocab = json.loads(response.text)
+    for term in vocab:
+        name = term['name'][0]['value']
+        tid = term['tid'][0]['value']
+        term_dict[name] = tid
+
+    return term_dict
+
+def create_term(config, vocab_id, term_name):
+    """Adds a term to the target vocabulary. Returns the new term's ID
+       if successful or False if not.
+    """
+    term = {
+           "vid": [
+              {
+                 "target_id": vocab_id,
+                 "target_type": "taxonomy_vocabulary"
+              }
+           ],
+           "status": [
+              {
+                 "value": True
+              }
+           ],
+           "name": [
+              {
+                 "value": term_name
+              }
+           ],
+           "description": [
+              {
+                 "value": "",
+                 "format": None
+              }
+           ],
+           "weight": [
+              {
+                 "value": 0
+              }
+           ],
+           "parent": [
+              {
+                 "target_id": None
+              }
+           ],
+           "default_langcode": [
+              {
+                 "value": True
+              }
+           ],
+           "path": [
+              {
+                 "alias": None,
+                 "pid": None,
+                 "langcode": "en"
+              }
+           ],
+           "field_external_uri": [
+              {
+                 "uri": "",
+                 "title": None,
+                 "options": []
+              }
+           ]
+        }
+
+    term_endpoint = config['host'] + '/taxonomy/term?_format=json'
+    headers = {
+        'Content-Type': 'application/json'
+    }
+    response = issue_request(config, 'POST', term_endpoint, headers, term, None)
+    if response.status_code == 201:
+        term_response_body = json.loads(response.text)
+        tid = term_response_body['tid'][0]['value']
+        logging.info("Term %s (%s) added to vocabulary %s.", tid, term_name, vocab_id)
+        return tid
+    else:
+        logging.warning("Term '%s' not created, HTTP response code was %s.", term_name, response.status_code)
+        return False
