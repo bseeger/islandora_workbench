@@ -623,3 +623,12 @@ def create_term(config, vocab_id, term_name):
     else:
         logging.warning("Term '%s' not created, HTTP response code was %s.", term_name, response.status_code)
         return False
+
+def value_is_numeric(value):
+    """Tests to see if value is numeric.
+    """
+    var = str(value)
+    if var.isnumeric():
+        return True
+    else:
+        return False

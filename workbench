@@ -85,6 +85,9 @@ def create():
                     if field_definitions[custom_field]['field_type'] == 'entity_reference':
                         if field_definitions[custom_field]['target_type'] == 'taxonomy_term':
                             target_type = 'taxonomy_term'
+                            # Get the field's linked vocabularies so we can determine whether a non-
+                            # numeric value in this field already exists in the linked vocabulary.
+                            linked_vocabularies = field_definitions[custom_field]['vocabularies']
                         if field_definitions[custom_field]['target_type'] == 'node':
                             target_type = 'node_type'
                         # Cardinality is unlimited.
