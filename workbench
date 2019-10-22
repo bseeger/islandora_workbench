@@ -25,6 +25,7 @@ def create():
         node_ids = dict()
 
         field_definitions = get_field_definitions(config)
+        # print(field_definitions)
         # Exit when we're just testing field definitions.
         sys.exit()
         with open(input_csv) as csvfile:
@@ -85,6 +86,8 @@ def create():
                     if field_definitions[custom_field]['field_type'] == 'entity_reference':
                         if field_definitions[custom_field]['target_type'] == 'taxonomy_term':
                             target_type = 'taxonomy_term'
+                            # print(custom_field)
+                            # print(field_definitions[custom_field])
                             # Get the field's linked vocabularies so we can determine whether a non-
                             # numeric value in this field already exists in the linked vocabulary.
                             linked_vocabularies = field_definitions[custom_field]['vocabularies']
