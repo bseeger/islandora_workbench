@@ -25,7 +25,6 @@ def create():
         node_ids = dict()
 
         field_definitions = get_field_definitions(config)
-        # print(field_definitions)
         # Exit when we're just testing field definitions.
         sys.exit()
         with open(input_csv) as csvfile:

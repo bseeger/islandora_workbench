@@ -155,13 +155,14 @@ def get_field_definitions(config):
        and combine them into a "field definitions" dictionary
        that we can use to introspect fields for validation, etc.
     """
-    field_definitions = {}
-
     # We need to get both the field config and the field storage config.
+    field_definitions = get_field_config(config, {})
+    print("Field config")
+    print(field_definitions)
     field_definitions = get_field_storage_config(config, field_definitions)
-    field_definitions = get_field_config(config, field_definitions)
+    print("Field storage config")
+    print(field_definitions)    
 
-    # print(field_definitions)
     return field_definitions
 
 
@@ -601,37 +602,16 @@ def value_is_numeric(value):
     else:
         return False
 
-def get_field_storage_config(config, field_definitions, pager = ''):
-    """GETs the field storage config from the target host,
-       cycling through any pages in the returned body.
-    """
-    headers = {'Accept': 'Application/vnd.api+json'}
-    field_storage_config_url = config['host'] + '/jsonapi/field_storage_config/field_storage_config' + pager
-    field_storage_config_response = issue_request(config, 'GET', field_storage_config_url, headers)
-    print(field_storage_config_response.status_code)
-    if field_storage_config_response.status_code == 200:
-        field_storage_config = json.loads(field_storage_config_response.text)
-        for item in field_storage_config['data']:
-            field_name = item['attributes']['field_name']
-            if 'target_type' in item['attributes']['settings']:
-                target_type = item['attributes']['settings']['target_type']
-            else:
-                target_type = None
-            field_definitions[field_name] = {
-                'field_type': item['attributes']['field_storage_config_type'],
-                'cardinality': item['attributes']['cardinality'],
-                'target_type': target_type}
-
-    if 'next' not in field_storage_config['links']:
-        return field_definitions
-    else:
-        base_url, pager = field_storage_config['links']['next']['href'].split("?")
-        pager = '?' + pager
-        get_field_storage_config(config, field_definitions, pager)
 
 def get_field_config(config, field_definitions, pager = ''):
     """GETs the field config from the target host,
        cycling through any pages in the returned body.
+
+       Note that since fields can be reused, a field name can
+       appears twice in field config. However, a field can't be
+       part of the a content type more than once. Therefore, we
+       need to filter out fields that don't apply to the current
+       content type. See below.
     """
     headers = {'Accept': 'Application/vnd.api+json'}
     field_config_url = config['host'] + '/jsonapi/field_config/field_config' + pager
@@ -640,25 +620,61 @@ def get_field_config(config, field_definitions, pager = ''):
         field_config = json.loads(field_config_response.text)
         for item in field_config['data']:
             field_name = item['attributes']['field_name']
-            print(field_name)
-            required = item['attributes']['required']
-            field_definitions[field_name]['required'] = required
+            # Only the response from the REST field_config endpoint indicates
+            # which node type a field is associated with, so we filter out field
+            # entries here that are not associated with our target content type.
+            if item['attributes']['bundle'] != config['content_type']:
+                continue
+
+            field_definitions[field_name] = {}
+            field_definitions[field_name]['required'] = item['attributes']['required']
             # E.g., comment, media, node.
             entity_type = item['attributes']['entity_type']
             field_definitions[field_name]['entity_type'] = entity_type
             # If the current field is a taxonomy field, get the referenced taxonomies.
-            if field_definitions[field_name]['target_type'] == 'taxonomy_term':
+            if 'config' in item['attributes']['dependencies']:
                 raw_vocabularies = [x for x in item['attributes']['dependencies']['config'] if re.match("^taxonomy.vocabulary.", x)]
-                vocabularies = [x.replace("taxonomy.vocabulary.", '') for x in raw_vocabularies]
-                # Taxonomy fields can reference multiple vocabularies. If we allow users
-                # to add terms to a multi-vocabulary field, we need a way to indicate in
-                # which vocabulary to add new terms to. Maybe require the vocabulary name as
-                # a prefix in the input, like "person:Mark Jordan"?
-                field_definitions[field_name]['vocabularies'] = vocabularies
+                if len(raw_vocabularies) > 0:
+                    vocabularies = [x.replace("taxonomy.vocabulary.", '') for x in raw_vocabularies]
+                    # Taxonomy fields can reference multiple vocabularies. If we allow users
+                    # to add terms to a multi-vocabulary field, we need a way to indicate in
+                    # which vocabulary to add new terms to. Maybe require the vocabulary name as
+                    # a prefix in the input, like "person:Mark Jordan"?
+                    field_definitions[field_name]['vocabularies'] = vocabularies
 
-    if 'next' not in field_config['links']:
-        return field_definitions
-    else:
-        base_url, pager = field_config['links']['next']['href'].split("?")
+    if 'next' in field_config['links']:
+        base_url, pager = field_config['links']['next']['href'].split('?')
         pager = '?' + pager
-        get_field_config(config, field_definitions, pager)
+        return get_field_config(config, field_definitions, pager)
+    else:
+        return field_definitions
+
+def get_field_storage_config(config, field_definitions, pager = ''):
+    """GETs the field storage config from the target host,
+       cycling through any pages in the returned body.
+    """
+    headers = {'Accept': 'Application/vnd.api+json'}
+    field_storage_config_url = config['host'] + '/jsonapi/field_storage_config/field_storage_config' + pager
+    field_storage_config_response = issue_request(config, 'GET', field_storage_config_url, headers)
+    if field_storage_config_response.status_code == 200:
+        field_storage_config = json.loads(field_storage_config_response.text)
+        for item in field_storage_config['data']:
+            field_name = item['attributes']['field_name']
+            if field_name not in field_definitions:
+                continue
+            if 'target_type' in item['attributes']['settings']:
+                target_type = item['attributes']['settings']['target_type']
+            else:
+                target_type = None
+            if field_name is None:
+                continue
+            field_definitions[field_name]['field_type'] = item['attributes']['field_storage_config_type']
+            field_definitions[field_name]['cardinality'] = item['attributes']['cardinality']
+            field_definitions[field_name]['target_type'] = target_type      
+
+    if 'next' in field_storage_config['links']:
+        base_url, pager = field_storage_config['links']['next']['href'].split('?')
+        pager = '?' + pager
+        return get_field_storage_config(config, field_definitions, pager)     
+    else:
+        return field_definitions
