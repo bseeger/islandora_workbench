@@ -157,11 +157,19 @@ def get_field_definitions(config):
     """
     # We need to get both the field config and the field storage config.
     field_definitions = get_field_config(config, {})
-    print("Field config")
-    print(field_definitions)
+    print("# Field config:")
+    print('')
+    for k in field_definitions:
+        print(k)
+        print('')
+    # print(field_definitions)
     field_definitions = get_field_storage_config(config, field_definitions)
-    print("Field storage config")
-    print(field_definitions)    
+    print('')
+    print("# Field storage :")
+    # print(field_definitions)
+    for bar in field_definitions:
+        print("")
+        print(bar)
 
     return field_definitions
 
@@ -593,6 +601,7 @@ def create_term(config, vocab_id, term_name):
         logging.warning("Term '%s' not created, HTTP response code was %s.", term_name, response.status_code)
         return False
 
+
 def value_is_numeric(value):
     """Tests to see if value is numeric.
     """
@@ -603,15 +612,15 @@ def value_is_numeric(value):
         return False
 
 
-def get_field_config(config, field_definitions, pager = ''):
+def get_field_config(config, field_definitions, pager=''):
     """GETs the field config from the target host,
        cycling through any pages in the returned body.
 
        Note that since fields can be reused, a field name can
-       appears twice in field config. However, a field can't be
-       part of the a content type more than once. Therefore, we
-       need to filter out fields that don't apply to the current
-       content type. See below.
+       appear twice in field config. However, since a field can't be
+       associated with a content type more than once, filtering out
+       fields that are not associated with the current content type
+       should render duplicate field entries mute.
     """
     headers = {'Accept': 'Application/vnd.api+json'}
     field_config_url = config['host'] + '/jsonapi/field_config/field_config' + pager
@@ -623,6 +632,7 @@ def get_field_config(config, field_definitions, pager = ''):
             # Only the response from the REST field_config endpoint indicates
             # which node type a field is associated with, so we filter out field
             # entries here that are not associated with our target content type.
+            # @todo: Does this logic work for media as well?
             if item['attributes']['bundle'] != config['content_type']:
                 continue
 
@@ -636,10 +646,8 @@ def get_field_config(config, field_definitions, pager = ''):
                 raw_vocabularies = [x for x in item['attributes']['dependencies']['config'] if re.match("^taxonomy.vocabulary.", x)]
                 if len(raw_vocabularies) > 0:
                     vocabularies = [x.replace("taxonomy.vocabulary.", '') for x in raw_vocabularies]
-                    # Taxonomy fields can reference multiple vocabularies. If we allow users
-                    # to add terms to a multi-vocabulary field, we need a way to indicate in
-                    # which vocabulary to add new terms to. Maybe require the vocabulary name as
-                    # a prefix in the input, like "person:Mark Jordan"?
+                    # As per https://github.com/mjordan/islandora_workbench/issues/61#issuecomment-543136817
+                    # the vocabulary ID should come at the end of the structured CSV values.
                     field_definitions[field_name]['vocabularies'] = vocabularies
 
     if 'next' in field_config['links']:
@@ -649,7 +657,8 @@ def get_field_config(config, field_definitions, pager = ''):
     else:
         return field_definitions
 
-def get_field_storage_config(config, field_definitions, pager = ''):
+
+def get_field_storage_config(config, field_definitions, pager=''):
     """GETs the field storage config from the target host,
        cycling through any pages in the returned body.
     """
@@ -659,22 +668,37 @@ def get_field_storage_config(config, field_definitions, pager = ''):
     if field_storage_config_response.status_code == 200:
         field_storage_config = json.loads(field_storage_config_response.text)
         for item in field_storage_config['data']:
+            # print("")
+            # print(item)
+
             field_name = item['attributes']['field_name']
-            if field_name not in field_definitions:
-                continue
-            if 'target_type' in item['attributes']['settings']:
-                target_type = item['attributes']['settings']['target_type']
+            if field_name == 'field_access_terms':
+                print("we got field_access_terms")
+            # We are only interested in fields that are already present in field_definitions,
+            # where we filter out fields that are not associated with the current content type.
+            if field_name in field_definitions:
+                if 'target_type' in item['attributes']['settings']:
+                    target_type = item['attributes']['settings']['target_type']
+                else:
+                    target_type = None
+
+                # Are all entries in field_storage_config getting added to field_definitions?
+                # E.g. field_rights, field_subject, field_weight, field_super_taxonomy, field_testing_workbench_61?
+                print(field_name + ': ' + item['attributes']['field_storage_config_type'])
+
+                field_definitions[field_name]['field_type'] = item['attributes']['field_storage_config_type']
+                field_definitions[field_name]['cardinality'] = item['attributes']['cardinality']
+                field_definitions[field_name]['target_type'] = target_type
             else:
-                target_type = None
-            if field_name is None:
-                continue
-            field_definitions[field_name]['field_type'] = item['attributes']['field_storage_config_type']
-            field_definitions[field_name]['cardinality'] = item['attributes']['cardinality']
-            field_definitions[field_name]['target_type'] = target_type      
+                # We use try/except here to avoid key errors.
+                try:
+                    del field_definitions[field_name]
+                except:
+                    pass
 
     if 'next' in field_storage_config['links']:
         base_url, pager = field_storage_config['links']['next']['href'].split('?')
         pager = '?' + pager
-        return get_field_storage_config(config, field_definitions, pager)     
+        return get_field_storage_config(config, field_definitions, pager)
     else:
         return field_definitions
